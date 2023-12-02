@@ -1,0 +1,4 @@
+SSID=CU-Campus
+username=02505007467
+password=007467
+DEBUG=False
