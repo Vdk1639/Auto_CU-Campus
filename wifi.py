@@ -1,4 +1,5 @@
 import pywifi
+import sys
 import time
 from pywifi import const
 import requests
@@ -6,16 +7,6 @@ import socket
 from bs4 import BeautifulSoup
 from urllib.parse import unquote
 
-
-# 获取本机计算机名称
-hostname = socket.gethostname()
-# 获取本机ip
-ip = socket.gethostbyname(hostname)
-#拼接登录url
-url_0="http://58.240.51.118/?wlanuserip="+ip+"&basname=&ssid=school"
-url_index="http://58.240.51.118/style/school/index.jsp"
-url_auth="http://58.240.51.118/authServlet"
-#url_2= "http://58.240.51.118/style/school/logon.jsp"
 
 with open('config.txt') as f:
     SSID = f.readline().split('=')[1].strip()
@@ -29,10 +20,10 @@ def wifi_connect_status():
     判断本机是否有无线网卡,以及连接状态
     :return: 已连接或存在无线网卡返回1,否则返回0
     """
-    #创建一个元线对象
+    #创建一无线对象
     wifi = pywifi.PyWiFi()
 
-    #取当前机器,第一个元线网卡
+    #取当前机器,第一无线网卡
     iface = wifi.interfaces()[0] #有可能有多个无线网卡,所以要指定
 
     #判断是否连接成功
@@ -82,21 +73,48 @@ def connect_wifi():
 
     ifaces.connect(tmp_profile)  # 连接
     time.sleep(1)  # 尝试10秒能否成功连接
-    isok = True
     if ifaces.status() == const.IFACE_CONNECTED:
         print("连接校园网成功")
+        isok = True
     else:
         print("连接校园网失败")
+        isok = False
     #ifaces.disconnect()  # 断开连接
-    time.sleep(1)
+    #time.sleep(1)
     return isok
 
+#连接wifi
+def tryconnect():
+    c=0
+    flag=False
+    while (not flag) and c<3:
+        c+=1
+        flag=connect_wifi()
+    else:
+        if flag:
+            print("wifi已连接，正在登录……")
+        else:
+            print("WiFi连接失败，请检查网络")
+            return False
+    return True
 
 #查看wifi状态
-#这里要改一下，在返回值为0时（未连接任何WiFi）要先连接一次，返回1时才会成功
-print(wifi_connect_status())
-#连接wifi
-print(connect_wifi())
+status=0
+status=wifi_connect_status()
+print(status)
+if tryconnect():
+    pass
+else:
+    sys.exit(1)
+# 获取本机计算机名称
+hostname = socket.gethostname()
+# 获取本机ip
+localip = socket.gethostbyname(hostname)
+#拼接登录url
+url_0="http://58.240.51.118/?wlanuserip="+localip+"&basname=&ssid=school"
+url_index="http://58.240.51.118/style/school/index.jsp"
+url_auth="http://58.240.51.118/authServlet"
+#url_2= "http://58.240.51.118/style/school/logon.jsp" # 这条暂时没用到，以后开发退出登录功能可能用到
 if DEBUG:
     print(url_0)
 
@@ -123,7 +141,7 @@ response=session.post(url=url_auth,data=data)
 if DEBUG:
     print(response,response.text)
 
-#status.code方法返回网页状态码
+#status_code方法返回网页状态码
 if response.status_code == 200:#网页正常访问
 	print('OK')
 elif response.status_code==500:
