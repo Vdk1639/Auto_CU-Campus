@@ -6,34 +6,29 @@ import requests
 import socket
 from bs4 import BeautifulSoup
 from urllib.parse import unquote
-
-
-with open('config.txt') as f:
-    SSID = f.readline().split('=')[1].strip()
-    username = f.readline().split('=')[1].strip()
-    password = f.readline().split('=')[1].strip()
-    b = f.readline().split('=')[1].strip()
-    DEBUG= b == str(True)
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 def wifi_connect_status():
     """
     判断本机是否有无线网卡,以及连接状态
-    :return: 已连接或存在无线网卡返回1,否则返回0
+    :return: 已连接或存在无线网卡返回True,否则返回False
     """
-    #创建一无线对象
     wifi = pywifi.PyWiFi()
+    interfaces = wifi.interfaces() #获取无线网卡接口
+    
+    if not interfaces:
+        print("没有找到无线网卡")
+        return False
 
-    #取当前机器,第一无线网卡
-    iface = wifi.interfaces()[0] #有可能有多个无线网卡,所以要指定
+    iface = interfaces[0] #取第一个无线网卡
 
-    #判断是否连接成功
-    if iface.status() in [const.IFACE_CONNECTED,const.IFACE_INACTIVE]:
-        print('wifi已经连接了网络')
-        return 1
+    if iface.status() in [const.IFACE_CONNECTED, const.IFACE_INACTIVE]: #判断是否连接成功
+        print('WiFi已经连接了网络')
+        return True
     else:
-        print("兄弟，我没设置自动打开Wi-Fi功能，你先打开wifi再试?")
-        pass
-    return 0
+        print("WiFi未启用，请启用Wi-Fi后重试！")
+        return False
 
 def scan_wifi():
     """
@@ -41,110 +36,182 @@ def scan_wifi():
     :return: 扫描结果对象
     """
     wifi = pywifi.PyWiFi()
-    iface = wifi.interfaces()[0]
+    interfaces = wifi.interfaces()
+    
+    if not interfaces:
+        print("没有找到无线网卡")
+        return []
 
-    iface.scan() #扫描附近wifi
+    iface = interfaces[0]
+    iface.scan()
     time.sleep(1)
     basewifi = iface.scan_results()
     for i in basewifi:
-        print('wifi扫描结果:{}'.format(i.ssid)) # ssid 为wifi名称
+        print('wifi扫描结果:{}'.format(i.ssid))
         print('wifi设备MAC地址:{}'.format(i.bssid))
     return basewifi
 
 def connect_wifi():
-    wifi = pywifi.PyWiFi()  # 创建一个wifi对象
-    ifaces = wifi.interfaces()[0]  # 取第一个无线网卡
+    wifi = pywifi.PyWiFi()
+    interfaces = wifi.interfaces()
+    
+    if not interfaces:
+        print("没有找到无线网卡")
+        return False
+
+    iface = interfaces[0] #取第一个无线网卡
     print("本机无线网卡名称：")
-    print(ifaces.name())  # 输出无线网卡名称
-    ifaces.disconnect()  # 断开网卡连接
-    time.sleep(3)  # 缓冲3秒
+    print(iface.name())
+    iface.disconnect()
+    time.sleep(1)
 
+    profile = pywifi.Profile()
+    profile.ssid = SSID
 
-    profile = pywifi.Profile()  # 配置文件
-    profile.ssid = SSID  # 目标wifi名称
-    #连校园网不需要密码登录，另有登录模块
-    # profile.auth = const.AUTH_ALG_OPEN  # 需要密码
-    # profile.akm.append(const.AKM_TYPE_WPA2PSK)  # 加密类型
-    # profile.cipher = const.CIPHER_TYPE_CCMP  # 加密单元
-    # profile.key = '4000103000' #wifi密码
+    # 不删除所有网络配置，只添加新的配置
+    tmp_profile = iface.add_network_profile(profile)
 
-    ifaces.remove_all_network_profiles()  # 删除其他配置文件
-    tmp_profile = ifaces.add_network_profile(profile)  # 加载配置文件
+    iface.connect(tmp_profile)
+    
+    retry_count = 0 #尝试连接次数
+    max_retries = 5 
+    # 尝试连接5次，每次间隔1秒
+    while iface.status() != const.IFACE_CONNECTED and retry_count < max_retries:
+        print(f"尝试连接 {SSID} 中...")
+        time.sleep(1)
+        retry_count += 1
 
-    ifaces.connect(tmp_profile)  # 连接
-    time.sleep(1)  # 尝试10秒能否成功连接
-    if ifaces.status() == const.IFACE_CONNECTED:
-        print("连接校园网成功")
-        isok = True
+    if iface.status() == const.IFACE_CONNECTED:
+        print(f"连接 {SSID} 成功")
+        return True
     else:
-        print("连接校园网失败")
-        isok = False
-    #ifaces.disconnect()  # 断开连接
-    #time.sleep(1)
-    return isok
+        print(f"连接 {SSID} 失败")
+        return False
 
-#连接wifi
-def tryconnect():
-    c=0
-    flag=False
-    while (not flag) and c<3:
-        c+=1
-        flag=connect_wifi()
+def tryconnect(max_retries=3):
+    """
+    尝试连接wifi
+    :return: 连接成功返回True,否则返回False
+    """
+    retry_count = 0 #尝试连接次数
+    flag = False #连接成功标志
+    while not flag and retry_count < max_retries:
+        retry_count += 1
+        flag = connect_wifi() #连接wifi
+    if flag:
+        print(f"{SSID}已连接，正在登录……")
     else:
-        if flag:
-            print("wifi已连接，正在登录……")
-        else:
-            print("WiFi连接失败，请检查网络")
-            return False
+        print(f"{SSID}连接失败，请检查网络")
+        return False
     return True
 
-#查看wifi状态
-status=0
-status=wifi_connect_status()
-print(status)
-if tryconnect():
-    pass
-else:
-    sys.exit(1)
-# 获取本机计算机名称
-hostname = socket.gethostname()
-# 获取本机ip
-localip = socket.gethostbyname(hostname)
-#拼接登录url
-url_0="http://58.240.51.118/?wlanuserip="+localip+"&basname=&ssid=school"
-url_index="http://58.240.51.118/style/school/index.jsp"
-url_auth="http://58.240.51.118/authServlet"
-#url_2= "http://58.240.51.118/style/school/logon.jsp" # 这条暂时没用到，以后开发退出登录功能可能用到
-if DEBUG:
-    print(url_0)
+def read_config(file_path='config.txt'):
+    """
+    读取配置文件
+    :param file_path: 配置文件路径
+    :return: SSID, USERNAME, PASSWORD, AUTH_SERVER_IP, DEBUG
+    """
+    try:
+        with open(file_path) as f:
+            config = {}
+            for line in f:
+                key, value = line.strip().split('=')
+                config[key.strip()] = value.strip()
+            ssid = config.get('SSID')
+            username = config.get('username')
+            password = config.get('password')
+            auth_server_ip = config.get('auth_server_ip')
+            DEBUG = config.get('DEBUG', 'false').lower() == 'true'
+        return ssid, username, password, auth_server_ip, DEBUG
+    except FileNotFoundError:
+        print("配置文件 config.txt 未找到")
+        sys.exit(1)
+    except Exception as e:
+        print(f"读取配置文件时发生错误: { e }")
+        sys.exit(1)
 
-session = requests.session()
-response = session.get(url_0)
-soup = BeautifulSoup(response.text, "html.parser")
-paramStr=(str(soup.find_all('frame')[1]).split('"')[-2]).split('=')[-1]
-paramStr=unquote(paramStr)
-if DEBUG:
-    print(paramStr)
+def login_to_wifi():
+    """
+    登录到WiFi
+    """
+    hostname = socket.gethostname() # 获取本机计算机名称
+    local_ip = socket.gethostbyname(hostname) # 获取本机ip
+    url_0 = f"http://{AUTH_SERVER_IP}/?wlanuserip={local_ip}&basname=&ssid=school"
+    url_index = f"http://{AUTH_SERVER_IP}/style/school/index.jsp"
+    url_auth = f"http://{AUTH_SERVER_IP}/authServlet"
+    if DEBUG:
+        print(url_0)
 
-response=session.get(url=url_index,params={"paramStr":paramStr})
-if DEBUG:
-    print(response,response.text)
-data={
-    "province": "wlan.js.chinaunicom.cn",
-    "paramStr": paramStr,
-    "gdyh": "prov",
-    "shortname": "",
-    "UserName": username,
-    "PassWord": password
-}
-response=session.post(url=url_auth,data=data)
-if DEBUG:
-    print(response,response.text)
+    try:
+        session = requests.session()
+        retry = Retry(
+            total=5,  # 总共重试次数
+            backoff_factor= 1 ,  # 重试间隔时间的增长因子
+            status_forcelist=[502, 503, 504]  # 需要重试的状态码
+        ) 
+        adapter = HTTPAdapter(max_retries=retry)
+        session.mount('http://', adapter)
+        session.mount('https://', adapter)
+        response = session.get(url_0)
+        response.raise_for_status()
+        soup = BeautifulSoup(response.text, "html.parser")
+        frames = soup.find_all('frame')
+        if len(frames) > 1:
+            paramStr = (str(frames[1]).split('"')[-2]).split('=')[-1]
+        else:
+            print("未找到足够的frame元素")
+            sys.exit(1)
+        print(paramStr) # 未解码的参数
+        paramStr = unquote(paramStr)
+        print(paramStr) # 解码后的参数  
+        
+        if DEBUG:
+            print(paramStr)
 
-#status_code方法返回网页状态码
-if response.status_code == 200:#网页正常访问
-	print('OK')
-elif response.status_code==500:
-    print(response.status_code,'参数错误!!!')
-else:
-    print(response.status_code,'未知错误!!!')
+        response = session.get(url=url_index, params={"paramStr": paramStr}) # 携带参数paramStr访问url_index
+        response.raise_for_status() # 如果请求失败，抛出异常
+        if DEBUG:
+            print(response, response.text)
+        
+        # 构造POST请求参数
+        data = {
+            "province": "wlan.js.chinaunicom.cn", #这里因为我的校园网在江苏 js，所以我写死在代码里，如果使用者不在江苏，需要修改这个参数，详情需要自己分析登录请求
+            "paramStr": paramStr,
+            "gdyh": "prov", #这里这个参数不清楚是什么，看不懂，但还是写死在代码里
+            "shortname": "",
+            "UserName": USERNAME,
+            "PassWord": PASSWORD
+        }
+        response = session.post(url=url_auth, data=data)
+        response.raise_for_status() # 如果请求失败，抛出异常
+        if DEBUG:
+            print(response, response.text) #
+
+        if response.status_code == 200:
+            print('OK')
+        elif response.status_code == 500:
+            print(response.status_code, '参数错误!!!')
+        else:
+            print(response.status_code, '未知错误!!!')
+    except requests.RequestException as e:
+        print(f"网络请求发生错误: { e }")
+        sys.exit(1)
+
+def main():
+    global SSID, USERNAME, PASSWORD, AUTH_SERVER_IP, DEBUG
+    SSID, USERNAME, PASSWORD, AUTH_SERVER_IP, DEBUG = read_config()
+
+    # 检查WiFi连接状态，1表示已连接，0表示未连接
+    status = wifi_connect_status()
+    if not status:
+        sys.exit(1)
+
+    # 尝试连接校园网
+    if not tryconnect():
+        sys.exit(1)
+
+    # 登录到校园网
+    login_to_wifi()
+
+if __name__ == "__main__":
+    main()

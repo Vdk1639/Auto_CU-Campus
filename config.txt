@@ -1,4 +1,5 @@
-SSID=CU-Campus
+SSID=CU_Campus
 username=02505007467
 password=007467
-DEBUG=False
+auth_server_ip=58.240.51.118
+DEBUG=True
